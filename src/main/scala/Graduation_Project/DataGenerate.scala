@@ -1,21 +1,24 @@
 package Graduation_Project
 
+import java.net.URI
 import java.util.UUID
 
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import scala.collection.mutable
 import scala.util.Random
 
 /**
-  * @创建用户: 阿宇
-  * @创建时间: 2019/5/5 08:09
-  * @类描述: 数据生成类
+  * @类描述: 模拟数据生成类
   */
 object DataGenerate {
   def main(args: Array[String]): Unit = {
-    val spark = SparkSession.builder().appName("Data Generate").master("local").getOrCreate()
+    val spark = SparkSession.builder()
+      .appName("Data Generate")
+      .master("local").getOrCreate()
 
     //存储用户id
     var userList = List[String]()
@@ -49,8 +52,21 @@ object DataGenerate {
       new GameData(id, set.mkString(","))
     })
 
-    spark.createDataFrame(userData).write.json("Game/userdata")
+    //如果文件已经存在，则需要先删除
+    val hdfs: FileSystem = FileSystem.get(new URI("hdfs://hadoop:8020"),new Configuration())
+    if(hdfs.exists(new Path("/Game/userdata"))){
+      println("删除上一次用户模拟数据!")
+      hdfs.delete(new Path("/Game/userdata"),true)
+    }
 
+    //将用户游戏数据转换为DataFrame
+    val userDF: DataFrame = spark.createDataFrame(userData)
+    //输出10行数据查看是否正确
+    userDF.show(false)
+    //数据写出到HDFS
+    userDF.write.json("hdfs://hadoop:8020/Game/userdata")
+
+    println("模拟数据写入HDFS完成!")
 
     spark.close()
   }
