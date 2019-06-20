@@ -1,7 +1,9 @@
 package Test
 
-import org.apache.spark.ml.regression.LinearRegression
-import org.apache.spark.sql.SparkSession
+import java.text.SimpleDateFormat
+import java.util.{Date, Properties}
+
+import org.apache.spark.sql.{SaveMode, SparkSession}
 
 /**
   * @创建用户: 阿宇
@@ -17,26 +19,66 @@ object Test2 {
       .config("spark.sql.warehouse.dir","warehouse")
       .getOrCreate()
 
-    val train = spark.read.format("libsvm").load("dir/test.data")
+    val frame = spark.read.format("jdbc")
+      .option("url", "jdbc:mysql://rm-bp175xy49lbhr9oe78o.mysql.rds.aliyuncs.com:3306/sitech_id?useUnicode=true&characterEncoding=utf8")
+      .option("dbtable", "t_user")
+      .option("user", "root")
+      .option("password", "Xtev@2018!@#$")
+      .load()
 
-    val lr = new LinearRegression()
-      .setMaxIter(10)
-      .setRegParam(0.3)
-      .setElasticNetParam(0.8)
+//    val spark = SparkSession.builder().appName(this.getClass.getName).master("local").getOrCreate()
+//    var frame = spark.read.format("jdbc")
+//      .option("url", "jdbc:mysql://rm-bp1c6a07aypw1u95uoo.mysql.rds.aliyuncs.com:3306/sitech_id?useUnicode=true&characterEncoding=utf8")
+//      .option("dbtable", "t_user")
+//      .option("user", "datesync")
+//      .option("password", "Xtev#33d2")
+//      .load()
 
-    // Fit the model
-    val lrModel = lr.fit(train)
 
-    //打印线性回归的系数和截距
-    println(s"Coefficients: ${lrModel.coefficients} Intercept: ${lrModel.intercept}")
+    import spark.implicits._
 
-    //5出现的频率应该是 1到n的累加除以5
-    val trainingSummary = lrModel.summary
-    println(s"numIterations: ${trainingSummary.totalIterations}")
-    println(s"objectiveHistory: [${trainingSummary.objectiveHistory.mkString(",")}]")
-    trainingSummary.residuals.show()
-    println(s"RMSE: ${trainingSummary.rootMeanSquaredError}")
-    println(s"r2: ${trainingSummary.r2}")
+    frame.select("education","create_time").rdd.map(row => {
+      if(row.isNullAt(0) || row.getString(0).size==0)
+        ("null",row.getLong(1))
+      else {
+        (row.getString(0), row.getLong(1))
+      }
+    }).toDF("education","create_time").createOrReplaceTempView("tmp")
+
+    spark.udf.register("cdate",(time:String)=>CDate(time))
+    spark.udf.register("dateToLong",(time:String)=>dateToLong(time))
+    val sql =
+      """
+        |select education,dateToLong(cdate(create_time)) date,count(1) net_increase from tmp group by education,cdate(create_time)
+      """.stripMargin
+//
+    spark.sql(sql).show(false)
+//
+    val prop = new Properties()
+    prop.setProperty("user","root")
+    prop.setProperty("password","Xtev@2018!@#$")
+    spark.sql(sql).write.mode(SaveMode.Append).jdbc("jdbc:mysql://rm-bp175xy49lbhr9oe78o.mysql.rds.aliyuncs.com:3306/sitech_bigdata_operation?useUnicode=true&characterEncoding=utf8","t_basic_user_education",prop)
+
+
+    spark.stop()
+
+
 
   }
+
+  def CDate(time:String):String={
+    val dateFormat: SimpleDateFormat = new SimpleDateFormat("yyyy-MM-dd")
+    val date = dateFormat.format(new Date(time.toLong))
+    date
+  }
+
+  def dateToLong(tm:String) :Long={
+    val fm = new SimpleDateFormat("yyyy-MM-dd")
+    val dt = fm.parse(tm)
+    val tim: Long = dt.getTime()
+    tim
+  }
+
+
+
 }
